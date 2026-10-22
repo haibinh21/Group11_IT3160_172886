@@ -1,8 +1,6 @@
-# Minesweeper AI — Group 11 — Draft 0.1
+# Minesweeper AI 
 
-Bản demo draft của nhóm, đã được duyệt để đưa lên GitHub. Python 3.10+.
-Mã Python được viết mới theo mô tả trong notebook và ảnh phân công của nhóm.
-Tên lớp/hàm giữ theo đề xuất của nhóm; thư viện bên ngoài: Pygame cho giao diện.
+Python 3.10+.
 
 ## Chạy demo
 
