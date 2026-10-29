@@ -102,8 +102,9 @@ class Minesweeper:
 
 class MinesweeperAI:
     """Nhiệm vụ 2–3: direct rules + subset inference until a fixed point."""
-    def __init__(self, height=8, width=8, seed=11):
+    def __init__(self, height=8, width=8, total_mines=10, seed=11):
         self.height, self.width = height, width
+        self.total_mines = total_mines  # Lưu tổng số mìn của bàn cờ
         self.moves_made: set[Cell] = set()
         self.safes: set[Cell] = set()
         self.mines: set[Cell] = set()
@@ -208,17 +209,63 @@ class MinesweeperAI:
         return min(candidates) if candidates else None
 
     def make_random_move(self):
-        # Uniform among legal unknown cells; this is not a minimum-risk solver.
-        candidates = sorted({(r, c) for r in range(self.height) for c in range(self.width)}
-                            - self.moves_made - self.mines)
-        return self.rng.choice(candidates) if candidates else None
+        """Chọn ô có xác suất rủi ro thấp nhất (Min-Risk)."""
+        probs = self.calculate_probabilities()
+        if not probs:
+            return None
+        # Tìm xác suất nhỏ nhất
+        min_prob = min(probs.values())
+        
+        # Lấy tất cả các ô có cùng xác suất nhỏ nhất
+        best_candidates = [cell for cell, p in probs.items() if abs(p - min_prob) < 1e-5]
+        
+        # Nếu có nhiều ô cùng rủi ro thấp nhất thì bốc ngẫu nhiên giữa chúng
+        chosen = self.rng.choice(best_candidates)
+        self.events.append(f"GUESS {chosen} (risk {min_prob:.1%})")
+        return chosen
+
+    def calculate_probabilities(self) -> dict[Cell, float]:
+        """Tính xác suất có mìn cho tất cả các ô hợp lệ chưa mở."""
+        all_cells = {(r, c) for r in range(self.height) for c in range(self.width)}
+        # Các ô ứng viên: chưa mở, chưa biết chắc là mìn và chưa biết chắc an toàn
+        candidates = all_cells - self.moves_made - self.mines - self.safes
+        if not candidates:
+            return {}
+
+        probabilities = {}
+        frontier_cells = set()
+
+        # Tính xác suất cho các ô ven biên dựa vào các câu trong knowledge
+        for sentence in self.knowledge:
+            if not sentence.cells:
+                continue
+            prob = sentence.count / len(sentence.cells)
+            for cell in sentence.cells:
+                if cell in candidates:
+                    frontier_cells.add(cell)
+                    # Nếu ô thuộc nhiều câu, lấy xác suất cao nhất để đánh giá rủi ro
+                    probabilities[cell] = max(probabilities.get(cell, 0.0), prob)
+
+        # Tính xác suất cho các ô tự do ngoài biên dựa trên mật độ mìn nền
+        free_cells = candidates - frontier_cells
+        if free_cells:
+            # Mìn còn lại = Tổng số mìn - số mìn đã suy ra
+            remaining_mines = max(0, self.total_mines - len(self.mines)) if self.total_mines else 0
+            # Mật độ mìn nền
+            free_prob = remaining_mines / len(candidates) if candidates else 0.15
+            for cell in free_cells:
+                probabilities[cell] = free_prob
+
+        return probabilities
 
 
 class DemoSession:
     """Shared controller for GUI and experiments; hidden board stays in the game."""
+class DemoSession:
     def __init__(self, height=8, width=8, mines=10, seed=11):
         self.game = Minesweeper(height, width, mines, seed)
-        self.ai = MinesweeperAI(height, width, seed + 100_000)
+        # Truyền thêm total_mines=mines cho AI:
+        self.ai = MinesweeperAI(height, width, total_mines=mines, seed=seed + 100_000)
         self.safe_moves = self.guesses = 0
         self.last_move = None
         self.last_kind = "Ready"
