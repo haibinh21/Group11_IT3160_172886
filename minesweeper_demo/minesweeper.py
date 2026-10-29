@@ -152,6 +152,10 @@ class MinesweeperAI:
     def infer(self):
         """Repeat inference because each new fact can simplify older sentences."""
         while True:
+            # Kiểm tra ràng buộc toàn cục trước mỗi vòng lặp
+            if self.check_global_constraint():
+                continue
+
             self._clean()
             safe, mines = set(), set()
             for sentence in self.knowledge:
@@ -257,6 +261,36 @@ class MinesweeperAI:
                 probabilities[cell] = free_prob
 
         return probabilities
+
+    def check_global_constraint(self) -> bool:
+        """Kiểm tra ràng buộc tổng số mìn toàn bàn cờ."""
+        if self.total_mines is None:
+            return False
+
+        all_cells = {(r, c) for r in range(self.height) for c in range(self.width)}
+        # Tập các ô chưa được xác định an toàn hay mìn
+        unrevealed = all_cells - self.safes - self.mines
+        remaining_mines = self.total_mines - len(self.mines)
+
+        if not unrevealed:
+            return False
+
+        updated = False
+        # Trường hợp 1: Đã tìm đủ mìn -> Tất cả các ô còn lại trên bàn chắc chắn AN TOÀN
+        if remaining_mines == 0:
+            for cell in sorted(unrevealed):
+                self.mark_safe(cell)
+                self.events.append(f"GLOBAL SAFE {cell}")
+            updated = True
+
+        # Trường hợp 2: Số ô chưa mở bằng đúng số mìn còn thiếu -> Toàn bộ là MÌN
+        elif remaining_mines == len(unrevealed):
+            for cell in sorted(unrevealed):
+                self.mark_mine(cell)
+                self.events.append(f"GLOBAL MINE {cell}")
+            updated = True
+
+        return updated
 
 
 class DemoSession:
