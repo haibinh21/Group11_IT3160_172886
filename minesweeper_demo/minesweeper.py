@@ -184,12 +184,90 @@ class MinesweeperAI:
                         if previous is None:
                             additions[cells] = count
             if not additions:
+                #Khi luật tập con bế tắc, kích hoạt bộ giải CSP 
+                if not (self.safes - self.moves_made):
+                    csp_safes, csp_mines = self.solve_csp()
+                    if csp_safes or csp_mines:
+                        for cell in sorted(csp_safes):
+                            self.mark_safe(cell)
+                            self.events.append(f"CSP SAFE {cell}")
+                        for cell in sorted(csp_mines):
+                            self.mark_mine(cell)
+                            self.events.append(f"CSP MINE {cell}")
+                        continue  # Tiếp tục lặp để cập nhật và rút gọn các ràng buộc khác
                 return
             for cells, count in additions.items():
                 sentence = Sentence(set(cells), count)
                 self.knowledge.append(sentence)
                 self.subset_inferences += 1
                 self.events.append(f"SUBSET {sentence}")
+
+    def solve_csp(self) -> tuple[set[Cell], set[Cell]]:
+        """Bộ suy luận nâng cao CSP: Tìm kiếm quay lui các cách gán mìn hợp lệ."""
+        # 1. Thu thập tất cả các ô biên đang có trong knowledge
+        vars_set = set()
+        for sentence in self.knowledge:
+            vars_set.update(sentence.cells)
+        vars_set -= self.safes
+        vars_set -= self.mines
+        var_list = sorted(vars_set)
+
+        # Giới hạn số biến để tránh bùng nổ thời gian tính toán
+        if not var_list or len(var_list) > 22:
+            return set(), set()
+
+        n = len(var_list)
+        var_idx = {v: i for i, v in enumerate(var_list)}
+
+        # Mã hóa các ràng buộc theo chỉ số biến
+        indexed_constraints = []
+        for s in self.knowledge:
+            cells_in_vars = [var_idx[c] for c in s.cells if c in var_idx]
+            if cells_in_vars:
+                indexed_constraints.append((cells_in_vars, s.count))
+
+        valid_models = []
+        assignment = [0] * n
+
+        # 2. Tìm kiếm quay lui nhánh cận
+        def backtrack(idx):
+            if idx == n:
+                valid_models.append(list(assignment))
+                return
+
+            for val in (0, 1):
+                assignment[idx] = val
+                possible = True
+                # Tỉa nhánh: kiểm tra xem gán giá trị này có vi phạm ràng buộc nào không
+                for cells_idx, count in indexed_constraints:
+                    assigned_mines = sum(assignment[i] for i in cells_idx if i <= idx)
+                    remaining_vars = sum(1 for i in cells_idx if i > idx)
+                    if assigned_mines > count or assigned_mines + remaining_vars < count:
+                        possible = False
+                        break
+                if possible:
+                    backtrack(idx + 1)
+
+        backtrack(0)
+
+        # Phân tích kết quả từ các kịch bản hợp lệ tìm được
+        if not valid_models:
+            return set(), set()
+
+        safes = set()
+        mines = set()
+        total_models = len(valid_models)
+
+        for i, cell in enumerate(var_list):
+            mine_count = sum(model[i] for model in valid_models)
+            # Ô không có mìn trong bất kỳ kịch bản nào -> 100% An toàn
+            if mine_count == 0:
+                safes.add(cell)
+            # Ô có mìn trong tất cả mọi kịch bản -> 100% Là mìn
+            elif mine_count == total_models:
+                mines.add(cell)
+
+        return safes, mines
 
     def add_knowledge(self, cell, count):
         """Receive a safe revealed cell and its adjacent-mine count."""
